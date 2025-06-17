@@ -273,7 +273,7 @@ class WhisperApp:
             memory_label = ctk.CTkLabel(main_frame, text=memory_text, font=ctk.CTkFont("Arial", 12), text_color="#1E90FF")
             memory_label.grid(row=1, column=0, pady=2)
 
-        model_label = ctk.CTkLabel(main_frame, text="Модель: Выберите модель", font=ctk.CTkFont("Arial", 12))
+        model_label = ctk.CTkLabel(main_frame, text="Модель:", font=ctk.CTkFont("Arial", 14))
         model_label.grid(row=2, column=0, pady=2)
 
         # Выпадающий список для выбора модели
