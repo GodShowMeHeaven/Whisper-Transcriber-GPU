@@ -251,7 +251,7 @@ class WhisperApp:
         main_frame = ctk.CTkFrame(self.root, corner_radius=0)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Информация о GPU
+        # Информация о GPU с использованием grid для центрирования
         gpu_info = self.get_gpu_info()
         if gpu_info:
             gpu_text = f"🚀 GPU: {gpu_info['name']}"
@@ -262,26 +262,30 @@ class WhisperApp:
             gpu_text = "❌ GPU недоступен"
             memory_text = ""
 
+        # Настройка grid для меток
+        main_frame.grid_columnconfigure(0, weight=1)  # Центрирование по горизонтали
+        main_frame.grid_rowconfigure((0, 1, 2), weight=1)
+
         gpu_label = ctk.CTkLabel(main_frame, text=gpu_text, font=ctk.CTkFont("Arial", 14, "bold"), text_color="#00FF00")
-        gpu_label.pack(anchor="w", padx=10, pady=5)
-        
+        gpu_label.grid(row=0, column=0, pady=5)
+
         if memory_text:
             memory_label = ctk.CTkLabel(main_frame, text=memory_text, font=ctk.CTkFont("Arial", 12), text_color="#1E90FF")
-            memory_label.pack(anchor="w", padx=10, pady=2)
-        
-        model_label = ctk.CTkLabel(main_frame, text="Модель:", font=ctk.CTkFont("Arial", 12))
-        model_label.pack(anchor="w", padx=10, pady=2)
+            memory_label.grid(row=1, column=0, pady=2)
+
+        model_label = ctk.CTkLabel(main_frame, text="Модель: Выберите модель", font=ctk.CTkFont("Arial", 12))
+        model_label.grid(row=2, column=0, pady=2)
 
         # Выпадающий список для выбора модели
         self.model_combo = ctk.CTkComboBox(main_frame, variable=self.selected_model,
                                           values=["base", "small", "medium", "large-v2", "large-v3"],
                                           font=ctk.CTkFont("Arial", 12), width=150)
-        self.model_combo.pack(pady=5, padx=10)
-        self.model_combo.set("large-v2")  # Значение по умолчанию
+        self.model_combo.grid(row=3, column=0, pady=5, padx=10)
 
         # Фрейм для выбора файла и транскрибации
         control_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        control_frame.pack(fill="x", padx=10, pady=10)
+        control_frame.grid(row=4, column=0, pady=10, sticky="nsew")
+        control_frame.grid_columnconfigure(0, weight=1)
 
         self.label = ctk.CTkLabel(control_frame, text="Файл не выбран", font=ctk.CTkFont("Arial", 12), wraplength=800)
         self.label.pack(pady=5, padx=10)
@@ -296,7 +300,8 @@ class WhisperApp:
 
         # Вкладки для результата и логов
         notebook = ctk.CTkTabview(main_frame, height=400)
-        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        notebook.grid(row=5, column=0, pady=10, sticky="nsew")
+        main_frame.grid_rowconfigure(5, weight=1)
 
         # Вкладка результата
         result_tab = notebook.add("📄 Результат")
@@ -316,7 +321,7 @@ class WhisperApp:
 
         # Фрейм для кнопок управления
         button_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        button_frame.pack(fill="x", padx=10, pady=5)
+        button_frame.grid(row=6, column=0, pady=5, sticky="nsew")
         button_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
         save_button = ctk.CTkButton(button_frame, text="💾 Сохранить", command=self.save_result,
@@ -333,7 +338,8 @@ class WhisperApp:
 
         # Фрейм для настроек форматирования
         settings_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        settings_frame.pack(fill="x", padx=10, pady=5)
+        settings_frame.grid(row=7, column=0, pady=5, sticky="nsew")
+        main_frame.grid_rowconfigure(7, weight=1)
 
         line_length_label = ctk.CTkLabel(settings_frame, text="Длина строки:", font=ctk.CTkFont("Arial", 12))
         line_length_label.pack(side="left", padx=10)
@@ -557,7 +563,6 @@ class WhisperApp:
             self.update_log_safe(f"🎬 Начинаю обработку {file_type} файла на GPU...\n")
             self.update_log_safe(f"📁 Файл: {os.path.basename(self.filename)}\n")
             self.update_log_safe(f"🚀 GPU: {gpu_info['name']}\n")
-            self.update_log_safe(f"💾 Память: {gpu_info['memory_total']:.1f} GB")
             self.update_log_safe(f"💾 Память до обработки: {gpu_info['memory_allocated']:.2f} GB\n")
             self.update_log_safe("=" * 50 + "\n")
             
