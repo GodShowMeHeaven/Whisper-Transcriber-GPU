@@ -16,6 +16,7 @@ dist/
 # Папка с кэшем Whisper
 ~/.cache/huggingface/
 C:\Users\yaknm\.cache\whisper/
+/bin/
 
 # Игнорировать сгенерированные исполняемые файлы и иконки, если они не нужны в репозитории
 *.exe
