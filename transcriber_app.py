@@ -150,8 +150,9 @@ class WhisperApp:
                                f"{error_msg}\n\nПриложение может работать некорректно.")
 
         self.create_widgets()
-        # Запускаем загрузку модели после инициализации интерфейса
         self.root.after(100, self.load_model)
+        # Настройка закрытия окна
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def suppress_warnings(self):
         warnings.filterwarnings("ignore", category=FutureWarning, module="whisper")
@@ -352,27 +353,31 @@ class WhisperApp:
             device_text += f" (доступно {device_info['device_count']} GPU)"
         memory_text = f"💾 Память: {device_info.get('memory_total', 0):.1f} GB" if self.use_gpu else ""
 
-        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_columnconfigure((0, 1), weight=1)
         main_frame.grid_rowconfigure((0, 1, 2), weight=1)
 
         device_label = ctk.CTkLabel(main_frame, text=device_text, font=ctk.CTkFont("Arial", 14, "bold"), 
                                    text_color="#00FF00" if self.use_gpu else "#FF4500")
-        device_label.grid(row=0, column=0, pady=5)
+        device_label.grid(row=0, column=0, columnspan=2, pady=5)
 
         if memory_text:
             memory_label = ctk.CTkLabel(main_frame, text=memory_text, font=ctk.CTkFont("Arial", 12), text_color="#1E90FF")
-            memory_label.grid(row=1, column=0, pady=2)
+            memory_label.grid(row=1, column=0, columnspan=2, pady=2)
 
         model_label = ctk.CTkLabel(main_frame, text="Модель:", font=ctk.CTkFont("Arial", 14))
-        model_label.grid(row=2, column=0, pady=2)
+        model_label.grid(row=2, column=0, pady=2, sticky="e")
 
         self.model_combo = ctk.CTkComboBox(main_frame, variable=self.selected_model,
                                           values=["base", "small", "medium", "large-v2", "large-v3"],
                                           font=ctk.CTkFont("Arial", 12), width=150)
-        self.model_combo.grid(row=3, column=0, pady=5, padx=10)
+        self.model_combo.grid(row=2, column=1, pady=5, padx=(0, 5), sticky="w")
+
+        apply_model_button = ctk.CTkButton(main_frame, text="Применить модель", command=self.apply_selected_model,
+                                          font=ctk.CTkFont("Arial", 12), width=120)
+        apply_model_button.grid(row=2, column=1, pady=5, padx=(155, 0), sticky="w")
 
         control_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        control_frame.grid(row=4, column=0, pady=10, sticky="nsew")
+        control_frame.grid(row=3, column=0, columnspan=2, pady=10, sticky="nsew")
         control_frame.grid_columnconfigure(0, weight=1)
 
         self.label = ctk.CTkLabel(control_frame, text="Файл не выбран", font=ctk.CTkFont("Arial", 12), wraplength=800)
@@ -389,8 +394,8 @@ class WhisperApp:
         self.transcribe_btn.pack(pady=5)
 
         notebook = ctk.CTkTabview(main_frame, height=400)
-        notebook.grid(row=5, column=0, pady=10, sticky="nsew")
-        main_frame.grid_rowconfigure(5, weight=1)
+        notebook.grid(row=4, column=0, columnspan=2, pady=10, sticky="nsew")
+        main_frame.grid_rowconfigure(4, weight=1)
 
         result_tab = notebook.add("📄 Результат")
         result_label = ctk.CTkLabel(result_tab, text="💬 Транскрибированный текст:", font=ctk.CTkFont("Arial", 14, "bold"))
@@ -407,7 +412,7 @@ class WhisperApp:
         self.log_output.pack(fill="both", expand=True, padx=10, pady=5)
 
         button_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        button_frame.grid(row=6, column=0, pady=5, sticky="nsew")
+        button_frame.grid(row=5, column=0, columnspan=2, pady=5, sticky="nsew")
         button_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
         save_button = ctk.CTkButton(button_frame, text="💾 Сохранить", command=self.save_result,
@@ -423,8 +428,8 @@ class WhisperApp:
         copy_button.grid(row=0, column=2, padx=10, pady=5)
 
         settings_frame = ctk.CTkFrame(main_frame, corner_radius=10)
-        settings_frame.grid(row=7, column=0, pady=5, sticky="nsew")
-        main_frame.grid_rowconfigure(7, weight=1)
+        settings_frame.grid(row=6, column=0, columnspan=2, pady=5, sticky="nsew")
+        main_frame.grid_rowconfigure(6, weight=1)
 
         line_length_label = ctk.CTkLabel(settings_frame, text="Длина строки:", font=ctk.CTkFont("Arial", 12))
         line_length_label.pack(side="left", padx=10)
@@ -483,7 +488,6 @@ class WhisperApp:
     def _load_model_thread(self):
         try:
             device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
-            # Используем очередь для безопасного обновления интерфейса
             def update_log_safe_from_thread(text):
                 self.root.after(0, lambda: self.update_log_safe(text))
 
@@ -560,6 +564,14 @@ class WhisperApp:
                             f"Не удалось загрузить модель:\n{e}\n\n"
                             "Проверьте интернет-соединение или установите модель вручную в C:\\Users\\<Имя пользователя>\\.cache\\whisper."))
 
+    def apply_selected_model(self):
+        if self.model and self.model.name == self.selected_model.get():
+            messagebox.showinfo("Информация", f"Модель {self.selected_model.get()} уже загружена!")
+            return
+        
+        self.transcribe_btn.configure(state="disabled", text="Загрузка модели...", text_color="#000000")
+        threading.Thread(target=self._load_model_thread, daemon=True).start()
+
     def select_file(self):
         filetypes = [
             ("Все поддерживаемые", "*.mp3;*.wav;*.m4a;*.webm;*.ogg;*.flac;*.mp4;*.avi;*.mov;*.mkv;*.wmv;*.flv;*.3gp"),
@@ -583,7 +595,7 @@ class WhisperApp:
             return
         
         if not self.model:
-            messagebox.showwarning("Внимание", "Модель еще загружается. Подождите.")
+            messagebox.showwarning("Внимание", "Модель еще не загружена. Выберите и примените модель.")
             return
 
         if self.use_gpu and not torch.cuda.is_available():
@@ -815,6 +827,14 @@ class WhisperApp:
                 messagebox.showinfo("Готово", f"Результат сохранен в:\n{save_path}")
             except Exception as e:
                 messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить файл:\n{e}")
+
+    def on_closing(self):
+        """Очистка при закрытии окна"""
+        self.root.after_cancel_all()  # Отменяет все запланированные вызовы after
+        self.cleanup_whisper_logging()
+        if self.use_gpu:
+            torch.cuda.empty_cache()
+        self.root.destroy()
 
 def main():
     check_environment()
