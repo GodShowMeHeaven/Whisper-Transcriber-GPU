@@ -29,29 +29,33 @@ class WhisperApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Whisper Transcriber - GPU/CPU")
-        self.root.geometry("1000x800")  # Увеличен размер окна для лучшей компоновки
-        
-        # Устанавливаем тему customtkinter
+        self.root.geometry("1000x800")
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        
-        # Подавляем некоторые warnings
+
         self.suppress_warnings()
-        
-        # Проверяем доступность GPU
+
         self.use_gpu = self.check_gpu_availability()
         if not self.use_gpu:
             messagebox.showwarning("Внимание", 
-                                 "GPU недоступен. Транскрибация будет выполнена на CPU.\n"
-                                 "Производительность может быть ниже.")
-        
+                                "GPU недоступен. Транскрибация будет выполнена на CPU.\n"
+                                "Производительность может быть ниже.")
+
+        # Установка пути к ffmpeg
+        import os
+        import sys
+        ffmpeg_path = os.path.join(os.path.dirname(sys.executable), "bin")
+        if os.path.exists(ffmpeg_path):
+            os.environ["PATH"] += os.pathsep + ffmpeg_path
+
         self.model = None
         self.filename = ""
         self.is_transcribing = False
         self.last_result = None
         self._last_processing_time = 0
-        self.selected_model = tk.StringVar(value="large-v2")  # Переменная для выбранной модели
-        
+        self.selected_model = tk.StringVar(value="large-v2")
+
         self.create_widgets()
         self.load_model()
 
