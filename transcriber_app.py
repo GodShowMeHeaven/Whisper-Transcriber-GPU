@@ -66,11 +66,9 @@ class WhisperLogHandler(logging.Handler):
         self.update_callback(log_message + '\n')
 
 class WhisperApp:
-    # Добавьте эти функции в начало класса WhisperApp
     def get_resource_path(self, relative_path):
         """Получение пути к ресурсам для PyInstaller"""
         try:
-            # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
             base_path = sys._MEIPASS
         except Exception:
             base_path = os.path.abspath(".")
@@ -79,7 +77,6 @@ class WhisperApp:
     def setup_ffmpeg_path(self):
         """Настройка пути к FFmpeg для разных режимов запуска"""
         if getattr(sys, 'frozen', False):
-            # Режим exe - используем встроенный FFmpeg
             application_path = os.path.dirname(sys.executable)
             ffmpeg_dir = os.path.join(application_path, "bin")
             ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
@@ -89,14 +86,12 @@ class WhisperApp:
             logging.debug(f"FFmpeg path: {ffmpeg_path}")
             
             if os.path.exists(ffmpeg_path):
-                # Добавляем в PATH
                 current_path = os.environ.get("PATH", "")
                 if ffmpeg_dir not in current_path:
                     os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
                 logging.debug(f"Added FFmpeg to PATH: {ffmpeg_dir}")
                 return True
             else:
-                # Пробуем альтернативный путь через _MEIPASS
                 try:
                     meipass_path = sys._MEIPASS
                     ffmpeg_dir_alt = os.path.join(meipass_path, "bin")
@@ -115,7 +110,6 @@ class WhisperApp:
                 logging.error(error_msg)
                 return False
         else:
-            # Режим разработки - предполагаем, что ffmpeg в PATH или в локальной папке bin
             local_ffmpeg = os.path.join("bin", "ffmpeg.exe")
             if os.path.exists(local_ffmpeg):
                 bin_dir = os.path.abspath("bin")
@@ -141,7 +135,6 @@ class WhisperApp:
                                 "GPU недоступен. Транскрибация будет выполнена на CPU.\n"
                                 "Производительность может быть ниже.")
 
-        # Инициализация всех атрибутов
         self.model = None
         self.filename = ""
         self.is_transcribing = False
@@ -149,18 +142,17 @@ class WhisperApp:
         self._last_processing_time = 0
         self.selected_model = tk.StringVar(value="large-v2")
 
-        # Настройка FFmpeg
         if not self.setup_ffmpeg_path():
             error_msg = "Критическая ошибка: FFmpeg не найден!"
             logging.error(error_msg)
             self.update_log_safe(f"❌ {error_msg}\n")
             messagebox.showerror("Критическая ошибка", 
                                f"{error_msg}\n\nПриложение может работать некорректно.")
-            # Не возвращаемся, продолжаем инициализацию
 
         self.create_widgets()
-        self.load_model()
-    
+        # Запускаем загрузку модели после инициализации интерфейса
+        self.root.after(100, self.load_model)
+
     def suppress_warnings(self):
         warnings.filterwarnings("ignore", category=FutureWarning, module="whisper")
         warnings.filterwarnings("ignore", message=".*Triton kernels.*")
@@ -335,7 +327,7 @@ class WhisperApp:
     def update_log_safe(self, text):
         def update():
             try:
-                is_transcribing = getattr(self, 'is_transcribing', False)  # Безопасное получение атрибута
+                is_transcribing = getattr(self, 'is_transcribing', False)
                 if "Начинаю обработку" in text or not is_transcribing:
                     self.log_output.insert("end", text)
                     self.log_output.see("end")
@@ -347,22 +339,19 @@ class WhisperApp:
         
         try:
             self.root.after(0, update)
-        except (tk.TclError, AttributeError):
+        except tk.TclError:
             pass
 
     def create_widgets(self):
-        # Главный фрейм
         main_frame = ctk.CTkFrame(self.root, corner_radius=0)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Информация о GPU/CPU с использованием grid для центрирования
         device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU (без GPU)"}
         device_text = f"🚀 Устройство: {device_info['name']}"
         if self.use_gpu and device_info['device_count'] > 1:
             device_text += f" (доступно {device_info['device_count']} GPU)"
         memory_text = f"💾 Память: {device_info.get('memory_total', 0):.1f} GB" if self.use_gpu else ""
 
-        # Настройка grid для меток
         main_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_rowconfigure((0, 1, 2), weight=1)
 
@@ -377,13 +366,11 @@ class WhisperApp:
         model_label = ctk.CTkLabel(main_frame, text="Модель:", font=ctk.CTkFont("Arial", 14))
         model_label.grid(row=2, column=0, pady=2)
 
-        # Выпадающий список для выбора модели
         self.model_combo = ctk.CTkComboBox(main_frame, variable=self.selected_model,
                                           values=["base", "small", "medium", "large-v2", "large-v3"],
                                           font=ctk.CTkFont("Arial", 12), width=150)
         self.model_combo.grid(row=3, column=0, pady=5, padx=10)
 
-        # Фрейм для выбора файла и транскрибации
         control_frame = ctk.CTkFrame(main_frame, corner_radius=10)
         control_frame.grid(row=4, column=0, pady=10, sticky="nsew")
         control_frame.grid_columnconfigure(0, weight=1)
@@ -401,12 +388,10 @@ class WhisperApp:
                                            fg_color="#4CAF50", text_color_disabled="#000000")
         self.transcribe_btn.pack(pady=5)
 
-        # Вкладки для результата и логов
         notebook = ctk.CTkTabview(main_frame, height=400)
         notebook.grid(row=5, column=0, pady=10, sticky="nsew")
         main_frame.grid_rowconfigure(5, weight=1)
 
-        # Вкладка результата
         result_tab = notebook.add("📄 Результат")
         result_label = ctk.CTkLabel(result_tab, text="💬 Транскрибированный текст:", font=ctk.CTkFont("Arial", 14, "bold"))
         result_label.pack(anchor="w", padx=10, pady=5)
@@ -414,7 +399,6 @@ class WhisperApp:
         self.output = ctk.CTkTextbox(result_tab, font=ctk.CTkFont("Consolas", 12), wrap="word", height=300)
         self.output.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Вкладка логов
         log_tab = notebook.add("📊 Логи")
         log_label = ctk.CTkLabel(log_tab, text="🔍 Подробные логи запуска:", font=ctk.CTkFont("Arial", 14, "bold"))
         log_label.pack(anchor="w", padx=10, pady=5)
@@ -422,7 +406,6 @@ class WhisperApp:
         self.log_output = ctk.CTkTextbox(log_tab, font=ctk.CTkFont("Consolas", 11), wrap="word", height=300, fg_color="#2E2E2E")
         self.log_output.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Фрейм для кнопок управления
         button_frame = ctk.CTkFrame(main_frame, corner_radius=10)
         button_frame.grid(row=6, column=0, pady=5, sticky="nsew")
         button_frame.grid_columnconfigure((0, 1, 2), weight=1)
@@ -439,7 +422,6 @@ class WhisperApp:
                                    font=ctk.CTkFont("Arial", 12), width=120)
         copy_button.grid(row=0, column=2, padx=10, pady=5)
 
-        # Фрейм для настроек форматирования
         settings_frame = ctk.CTkFrame(main_frame, corner_radius=10)
         settings_frame.grid(row=7, column=0, pady=5, sticky="nsew")
         main_frame.grid_rowconfigure(7, weight=1)
@@ -467,7 +449,6 @@ class WhisperApp:
                                           font=ctk.CTkFont("Arial", 12))
         timestamps_check.pack(side="left", padx=20)
 
-        # Кнопка для применения настроек
         apply_settings_btn = ctk.CTkButton(settings_frame, text="Применить настройки", command=self.apply_settings,
                                           font=ctk.CTkFont("Arial", 12), width=120)
         apply_settings_btn.pack(side="left", padx=10)
@@ -502,30 +483,31 @@ class WhisperApp:
     def _load_model_thread(self):
         try:
             device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
-            self.update_log_safe("=== 🚀 ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ ===\n")
-            self.update_log_safe(f"Устройство: {device_info['name']}\n")
+            # Используем очередь для безопасного обновления интерфейса
+            def update_log_safe_from_thread(text):
+                self.root.after(0, lambda: self.update_log_safe(text))
+
+            update_log_safe_from_thread("=== 🚀 ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ ===\n")
+            update_log_safe_from_thread(f"Устройство: {device_info['name']}\n")
             if self.use_gpu:
-                self.update_log_safe(f"Доступно GPU: {device_info['device_count']}\n")
-                self.update_log_safe(f"Общая память: {device_info['memory_total']:.2f} GB\n")
-                self.update_log_safe(f"Память выделена: {device_info['memory_allocated']:.2f} GB\n")
-                self.update_log_safe(f"Память зарезервирована: {device_info['memory_reserved']:.2f} GB\n")
-            self.update_log_safe("=" * 50 + "\n\n")
+                update_log_safe_from_thread(f"Доступно GPU: {device_info['device_count']}\n")
+                update_log_safe_from_thread(f"Общая память: {device_info['memory_total']:.2f} GB\n")
+                update_log_safe_from_thread(f"Память выделена: {device_info['memory_allocated']:.2f} GB\n")
+                update_log_safe_from_thread(f"Память зарезервирована: {device_info['memory_reserved']:.2f} GB\n")
+            update_log_safe_from_thread("=" * 50 + "\n\n")
             
-            self.update_log_safe(f"🔄 Загружаю модель Whisper {self.selected_model.get()} на {device_info['name']}...\n")
+            update_log_safe_from_thread(f"🔄 Загружаю модель Whisper {self.selected_model.get()} на {device_info['name']}...\n")
             
             device = "cuda:0" if self.use_gpu else "cpu"
             self.setup_whisper_logging()
             
-            # Настройка кэша whisper
-            import os
             cache_dir = os.path.expanduser("~/.cache/whisper")
             if not os.path.exists(cache_dir):
                 os.makedirs(cache_dir)
-                self.update_log_safe(f"📂 Создаю кэш моделей в: {cache_dir}\n")
+                update_log_safe_from_thread(f"📂 Создаю кэш моделей в: {cache_dir}\n")
             os.environ["WHISPER_CACHE_DIR"] = cache_dir
-            self.update_log_safe(f"📂 Кэш моделей установлен в: {cache_dir}\n")
+            update_log_safe_from_thread(f"📂 Кэш моделей установлен в: {cache_dir}\n")
             
-            # Проверка интернет-соединения
             try:
                 urllib.request.urlopen('https://huggingface.co', timeout=5)
                 has_internet = True
@@ -540,7 +522,7 @@ class WhisperApp:
             
             if hasattr(self.model, 'device'):
                 actual_device = str(self.model.device)
-                self.update_log_safe(f"✅ Модель загружена на устройство: {actual_device}\n")
+                update_log_safe_from_thread(f"✅ Модель загружена на устройство: {actual_device}\n")
                 
                 if self.use_gpu and "cuda" not in actual_device.lower():
                     raise Exception(f"Модель загрузилась на {actual_device}, а не на GPU!")
@@ -549,10 +531,10 @@ class WhisperApp:
             
             if self.use_gpu:
                 gpu_info_after = self.get_gpu_info()
-                self.update_log_safe(f"💾 Память GPU после загрузки: {gpu_info_after['memory_allocated']:.2f} GB\n")
+                update_log_safe_from_thread(f"💾 Память GPU после загрузки: {gpu_info_after['memory_allocated']:.2f} GB\n")
             
-            self.update_log_safe(f"\n🚀 Модель {self.selected_model.get()} успешно загружена на {device_info['name']}!\n")
-            self.update_log_safe("📋 Готов к транскрибации!\n\n")
+            update_log_safe_from_thread(f"\n🚀 Модель {self.selected_model.get()} успешно загружена на {device_info['name']}!\n")
+            update_log_safe_from_thread("📋 Готов к транскрибации!\n\n")
             
             self.root.after(0, lambda: self.transcribe_btn.configure(
                 text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", state="normal"))
@@ -560,19 +542,19 @@ class WhisperApp:
         except Exception as e:
             error_msg = f"❌ КРИТИЧЕСКАЯ ОШИБКА при загрузке модели: {e}\n\n"
             logging.error(error_msg)
-            self.update_log_safe(error_msg)
+            update_log_safe_from_thread(error_msg)
             
-            self.update_log_safe("🔧 Возможные причины:\n")
+            update_log_safe_from_thread("🔧 Возможные причины:\n")
             if not self.use_gpu:
-                self.update_log_safe("1. CPU доступен, но модель не загружается\n")
+                update_log_safe_from_thread("1. CPU доступен, но модель не загружается\n")
             else:
-                self.update_log_safe("1. Не установлен PyTorch с CUDA поддержкой\n")
-                self.update_log_safe("2. Устаревшие драйверы NVIDIA\n")
-                self.update_log_safe("3. Недостаточно памяти GPU\n")
-            self.update_log_safe("4. Отсутствует интернет-соединение для загрузки модели\n\n")
-            self.update_log_safe("💡 Для установки PyTorch с CUDA (если требуется GPU):\n")
-            self.update_log_safe("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118\n")
-            self.update_log_safe("💡 Для ручной загрузки модели: скачайте с https://huggingface.co/whisper и поместите в C:\\Users\\<Имя пользователя>\\.cache\\whisper.\n")
+                update_log_safe_from_thread("1. Не установлен PyTorch с CUDA поддержкой\n")
+                update_log_safe_from_thread("2. Устаревшие драйверы NVIDIA\n")
+                update_log_safe_from_thread("3. Недостаточно памяти GPU\n")
+            update_log_safe_from_thread("4. Отсутствует интернет-соединение для загрузки модели\n\n")
+            update_log_safe_from_thread("💡 Для установки PyTorch с CUDA (если требуется GPU):\n")
+            update_log_safe_from_thread("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118\n")
+            update_log_safe_from_thread("💡 Для ручной загрузки модели: скачайте с https://huggingface.co/whisper и поместите в C:\\Users\\<Имя пользователя>\\.cache\\whisper.\n")
             
             self.root.after(0, lambda: messagebox.showerror("Критическая ошибка", 
                             f"Не удалось загрузить модель:\n{e}\n\n"
@@ -723,7 +705,6 @@ class WhisperApp:
             logging.debug(f"Starting transcription with model: {self.selected_model.get()}")
             print(f"DEBUG: Starting transcription with model: {self.selected_model.get()}")
             
-            # Явное указание пути к ffmpeg с учётом _internal
             exe_dir = os.path.dirname(sys.executable)
             ffmpeg_path = os.path.join(exe_dir, "_internal", "bin", "ffmpeg.exe")
             logging.debug(f"Using ffmpeg path: {ffmpeg_path}, exists: {os.path.exists(ffmpeg_path)}")
@@ -736,7 +717,7 @@ class WhisperApp:
                     self.filename,
                     language="ru",
                     task="transcribe",
-                    fp16=self.use_gpu,  # FP16 только для GPU
+                    fp16=self.use_gpu,
                     verbose=True,
                     word_timestamps=True
                 )
@@ -803,8 +784,6 @@ class WhisperApp:
                 state="normal", text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", text_color="white"))
             logging.debug("Button state restored")
             print("DEBUG: Button state restored")
-            # Пауза для просмотра ошибок
-            input("Press Enter to exit...")
 
     def save_result(self):
         text = self.output.get("0.0", "end").strip()
@@ -838,7 +817,6 @@ class WhisperApp:
                 messagebox.showerror("Ошибка сохранения", f"Не удалось сохранить файл:\n{e}")
 
 def main():
-    # Проверка окружения (только для отладки)
     check_environment()
     
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -848,7 +826,6 @@ def main():
     app = WhisperApp(root)
     root.mainloop()
     
-    # Пауза только в режиме разработки
     if not getattr(sys, 'frozen', False):
         input("Press Enter to exit...")
 
