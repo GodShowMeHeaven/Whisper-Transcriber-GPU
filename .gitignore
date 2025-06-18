@@ -1,0 +1,40 @@
+# Python файлы и кэш
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальные окружения
+venv/
+env/
+.venv/
+
+# PyInstaller временные файлы
+build/
+dist/
+*.spec
+
+# Папка с кэшем Whisper
+~/.cache/huggingface/
+C:\Users\yaknm\.cache\whisper/
+
+# Игнорировать сгенерированные исполняемые файлы и иконки, если они не нужны в репозитории
+*.exe
+*.ico
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# IDE и редакторы
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Логи и временные файлы
+*.log
+*.bak
+*.tmp
+
+# Папка с зависимостями (если вы используете pipenv или poetry)
+Pipfile.lock
+poetry.lock

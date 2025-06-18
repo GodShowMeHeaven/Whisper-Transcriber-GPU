@@ -13,6 +13,7 @@ import logging
 import warnings
 import re
 import textwrap
+import urllib.request
 
 class WhisperLogHandler(logging.Handler):
     """Кастомный обработчик логов для Whisper"""
@@ -27,7 +28,7 @@ class WhisperLogHandler(logging.Handler):
 class WhisperApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Whisper Transcriber - Только GPU")
+        self.root.title("Whisper Transcriber - GPU/CPU")
         self.root.geometry("1000x800")  # Увеличен размер окна для лучшей компоновки
         
         # Устанавливаем тему customtkinter
@@ -37,17 +38,12 @@ class WhisperApp:
         # Подавляем некоторые warnings
         self.suppress_warnings()
         
-        # Проверяем GPU сразу при запуске
-        if not self.check_gpu_availability():
-            messagebox.showerror("Ошибка GPU", 
-                               "GPU недоступен!\n\n"
-                               "Требования:\n"
-                               "- NVIDIA GPU с поддержкой CUDA\n"
-                               "- Установленный PyTorch с CUDA\n"
-                               "- Драйверы NVIDIA\n\n"
-                               "Программа будет закрыта.")
-            root.destroy()
-            return
+        # Проверяем доступность GPU
+        self.use_gpu = self.check_gpu_availability()
+        if not self.use_gpu:
+            messagebox.showwarning("Внимание", 
+                                 "GPU недоступен. Транскрибация будет выполнена на CPU.\n"
+                                 "Производительность может быть ниже.")
         
         self.model = None
         self.filename = ""
@@ -232,7 +228,7 @@ class WhisperApp:
     def update_log_safe(self, text):
         def update():
             try:
-                if "Начинаю обработку на GPU" in text or not self.is_transcribing:
+                if "Начинаю обработку" in text or not self.is_transcribing:
                     self.log_output.insert("end", text)
                     self.log_output.see("end")
                 elif self.is_transcribing:
@@ -251,23 +247,20 @@ class WhisperApp:
         main_frame = ctk.CTkFrame(self.root, corner_radius=0)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Информация о GPU с использованием grid для центрирования
-        gpu_info = self.get_gpu_info()
-        if gpu_info:
-            gpu_text = f"🚀 GPU: {gpu_info['name']}"
-            if gpu_info['device_count'] > 1:
-                gpu_text += f" (доступно {gpu_info['device_count']} GPU)"
-            memory_text = f"💾 Память: {gpu_info['memory_total']:.1f} GB"
-        else:
-            gpu_text = "❌ GPU недоступен"
-            memory_text = ""
+        # Информация о GPU/CPU с использованием grid для центрирования
+        device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU (без GPU)"}
+        device_text = f"🚀 Устройство: {device_info['name']}"
+        if self.use_gpu and device_info['device_count'] > 1:
+            device_text += f" (доступно {device_info['device_count']} GPU)"
+        memory_text = f"💾 Память: {device_info.get('memory_total', 0):.1f} GB" if self.use_gpu else ""
 
         # Настройка grid для меток
-        main_frame.grid_columnconfigure(0, weight=1)  # Центрирование по горизонтали
+        main_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_rowconfigure((0, 1, 2), weight=1)
 
-        gpu_label = ctk.CTkLabel(main_frame, text=gpu_text, font=ctk.CTkFont("Arial", 14, "bold"), text_color="#00FF00")
-        gpu_label.grid(row=0, column=0, pady=5)
+        device_label = ctk.CTkLabel(main_frame, text=device_text, font=ctk.CTkFont("Arial", 14, "bold"), 
+                                   text_color="#00FF00" if self.use_gpu else "#FF4500")
+        device_label.grid(row=0, column=0, pady=5)
 
         if memory_text:
             memory_label = ctk.CTkLabel(main_frame, text=memory_text, font=ctk.CTkFont("Arial", 12), text_color="#1E90FF")
@@ -294,8 +287,10 @@ class WhisperApp:
                                      font=ctk.CTkFont("Arial", 14), width=200)
         select_button.pack(pady=5)
 
-        self.transcribe_btn = ctk.CTkButton(control_frame, text="🚀 Начать транскрибацию (GPU)", command=self.start_transcription,
-                                           font=ctk.CTkFont("Arial", 14, "bold"), width=250, fg_color="#4CAF50", text_color_disabled="#000000")
+        self.transcribe_btn = ctk.CTkButton(control_frame, text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", 
+                                           command=self.start_transcription,
+                                           font=ctk.CTkFont("Arial", 14, "bold"), width=250, 
+                                           fg_color="#4CAF50", text_color_disabled="#000000")
         self.transcribe_btn.pack(pady=5)
 
         # Вкладки для результата и логов
@@ -398,19 +393,30 @@ class WhisperApp:
     
     def _load_model_thread(self):
         try:
-            gpu_info = self.get_gpu_info()
-            self.update_log_safe("=== 🚀 ИНФОРМАЦИЯ О GPU ===\n")
-            self.update_log_safe(f"GPU: {gpu_info['name']}\n")
-            self.update_log_safe(f"Доступно GPU: {gpu_info['device_count']}\n")
-            self.update_log_safe(f"Общая память: {gpu_info['memory_total']:.2f} GB\n")
-            self.update_log_safe(f"Память выделена: {gpu_info['memory_allocated']:.2f} GB\n")
-            self.update_log_safe(f"Память зарезервирована: {gpu_info['memory_reserved']:.2f} GB\n")
+            device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
+            self.update_log_safe("=== 🚀 ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ ===\n")
+            self.update_log_safe(f"Устройство: {device_info['name']}\n")
+            if self.use_gpu:
+                self.update_log_safe(f"Доступно GPU: {device_info['device_count']}\n")
+                self.update_log_safe(f"Общая память: {device_info['memory_total']:.2f} GB\n")
+                self.update_log_safe(f"Память выделена: {device_info['memory_allocated']:.2f} GB\n")
+                self.update_log_safe(f"Память зарезервирована: {device_info['memory_reserved']:.2f} GB\n")
             self.update_log_safe("=" * 50 + "\n\n")
             
-            self.update_log_safe(f"🔄 Загружаю модель Whisper {self.selected_model.get()} на GPU...\n")
+            self.update_log_safe(f"🔄 Загружаю модель Whisper {self.selected_model.get()} на {device_info['name']}...\n")
             
-            device = "cuda:0"
+            device = "cuda:0" if self.use_gpu else "cpu"
             self.setup_whisper_logging()
+            
+            # Проверка интернет-соединения
+            try:
+                urllib.request.urlopen('https://huggingface.co', timeout=5)
+                has_internet = True
+            except:
+                has_internet = False
+            
+            if not has_internet:
+                raise Exception("Интернет-соединение отсутствует. Подключитесь к интернету для загрузки модели.")
             
             with self.capture_whisper_output():
                 self.model = whisper.load_model(self.selected_model.get(), device=device)
@@ -419,33 +425,40 @@ class WhisperApp:
                 actual_device = str(self.model.device)
                 self.update_log_safe(f"✅ Модель загружена на устройство: {actual_device}\n")
                 
-                if "cuda" not in actual_device.lower():
+                if self.use_gpu and "cuda" not in actual_device.lower():
                     raise Exception(f"Модель загрузилась на {actual_device}, а не на GPU!")
+                elif not self.use_gpu and "cpu" not in actual_device.lower():
+                    raise Exception(f"Модель загрузилась на {actual_device}, а не на CPU!")
             
-            gpu_info_after = self.get_gpu_info()
-            self.update_log_safe(f"💾 Память GPU после загрузки: {gpu_info_after['memory_allocated']:.2f} GB\n")
+            if self.use_gpu:
+                gpu_info_after = self.get_gpu_info()
+                self.update_log_safe(f"💾 Память GPU после загрузки: {gpu_info_after['memory_allocated']:.2f} GB\n")
             
-            self.update_log_safe(f"\n🚀 Модель {self.selected_model.get()} успешно загружена на GPU!\n")
-            self.update_log_safe("📋 Готов к быстрой транскрибации!\n\n")
+            self.update_log_safe(f"\n🚀 Модель {self.selected_model.get()} успешно загружена на {device_info['name']}!\n")
+            self.update_log_safe("📋 Готов к транскрибации!\n\n")
             
             self.root.after(0, lambda: self.transcribe_btn.configure(
-                text="🚀 Начать транскрибацию (GPU)", state="normal"))
+                text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", state="normal"))
             
         except Exception as e:
-            error_msg = f"❌ КРИТИЧЕСКАЯ ОШИБКА при загрузке модели на GPU: {e}\n\n"
+            error_msg = f"❌ КРИТИЧЕСКАЯ ОШИБКА при загрузке модели: {e}\n\n"
             self.update_log_safe(error_msg)
             
             self.update_log_safe("🔧 Возможные причины:\n")
-            self.update_log_safe("1. Не установлен PyTorch с CUDA поддержкой\n")
-            self.update_log_safe("2. Устаревшие драйверы NVIDIA\n")
-            self.update_log_safe("3. Недостаточно памяти GPU\n")
-            self.update_log_safe("4. CUDA не настроена правильно\n\n")
-            self.update_log_safe("💡 Для установки PyTorch с CUDA:\n")
+            if not self.use_gpu:
+                self.update_log_safe("1. CPU доступен, но модель не загружается\n")
+            else:
+                self.update_log_safe("1. Не установлен PyTorch с CUDA поддержкой\n")
+                self.update_log_safe("2. Устаревшие драйверы NVIDIA\n")
+                self.update_log_safe("3. Недостаточно памяти GPU\n")
+            self.update_log_safe("4. Отсутствует интернет-соединение для загрузки модели\n\n")
+            self.update_log_safe("💡 Для установки PyTorch с CUDA (если требуется GPU):\n")
             self.update_log_safe("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118\n")
+            self.update_log_safe("💡 Для ручной загрузки модели: скачайте с https://huggingface.co/whisper и поместите в ~/.cache/huggingface/hub.\n")
             
             self.root.after(0, lambda: messagebox.showerror("Критическая ошибка", 
-                               f"Не удалось загрузить модель на GPU:\n{e}\n\n"
-                               "Проверьте установку CUDA и PyTorch!"))
+                               f"Не удалось загрузить модель:\n{e}\n\n"
+                               "Проверьте интернет-соединение или установите модель вручную."))
 
     def select_file(self):
         filetypes = [
@@ -470,27 +483,27 @@ class WhisperApp:
             return
         
         if not self.model:
-            messagebox.showwarning("Внимание", "Модель еще загружается на GPU. Подождите.")
+            messagebox.showwarning("Внимание", "Модель еще загружается. Подождите.")
             return
 
-        if not torch.cuda.is_available():
-            messagebox.showerror("Ошибка GPU", "GPU стал недоступен! Перезапустите программу.")
+        if self.use_gpu and not torch.cuda.is_available():
+            messagebox.showerror("Ошибка GPU", "GPU стал недоступен! Переключение на CPU не поддерживается после загрузки.")
             return
 
         self.output.delete("0.0", "end")
         self.log_output.delete("0.0", "end")
         self.is_transcribing = False
         
-        self.transcribe_btn.configure(state="disabled", text="⚡ Транскрибация (GPU)...", text_color="#000000")
+        self.transcribe_btn.configure(state="disabled", text=f"⚡ Транскрибация ({'GPU' if self.use_gpu else 'CPU'})...", text_color="#000000")
         
         threading.Thread(target=self.transcribe_audio, daemon=True).start()
 
     def display_result(self, result):
-        gpu_info = self.get_gpu_info()
+        device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
         processing_time = self._last_processing_time
         
-        result_header = f"=== ⚡ РЕЗУЛЬТАТ GPU ТРАНСКРИБАЦИИ ===\n"
-        result_header += f"🚀 GPU: {gpu_info['name']}\n"
+        result_header = f"=== ⚡ РЕЗУЛЬТАТ ТРАНСКРИБАЦИИ ===\n"
+        result_header += f"🚀 Устройство: {device_info['name']}\n"
         result_header += f"📁 Файл: {os.path.basename(self.filename)}\n"
         result_header += f"⏱️ Время: {processing_time:.1f} секунд\n"
         result_header += f"🌍 Язык: {result.get('language', 'ru')}\n"
@@ -556,29 +569,31 @@ class WhisperApp:
 
     def transcribe_audio(self):
         try:
-            gpu_info = self.get_gpu_info()
+            device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
             file_ext = os.path.splitext(self.filename)[1].lower()
             file_type = "видео" if file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.3gp'] else "аудио"
             
-            self.update_log_safe(f"🎬 Начинаю обработку {file_type} файла на GPU...\n")
+            self.update_log_safe(f"🎬 Начинаю обработку {file_type} файла на {device_info['name']}...\n")
             self.update_log_safe(f"📁 Файл: {os.path.basename(self.filename)}\n")
-            self.update_log_safe(f"🚀 GPU: {gpu_info['name']}\n")
-            self.update_log_safe(f"💾 Память до обработки: {gpu_info['memory_allocated']:.2f} GB\n")
+            if self.use_gpu:
+                self.update_log_safe(f"🚀 GPU: {device_info['name']}\n")
+                self.update_log_safe(f"💾 Память до обработки: {device_info['memory_allocated']:.2f} GB\n")
             self.update_log_safe("=" * 50 + "\n")
             
-            torch.cuda.empty_cache()
+            if self.use_gpu:
+                torch.cuda.empty_cache()
             
             start_time = time.time()
             
             self.is_transcribing = True
-            self.update_log_safe(f"Начинаю обработку на GPU с моделью {self.selected_model.get()}...\n")
+            self.update_log_safe(f"Начинаю обработку на {device_info['name']} с моделью {self.selected_model.get()}...\n")
             
             with self.capture_whisper_output():
                 result = self.model.transcribe(
                     self.filename,
                     language="ru",
                     task="transcribe",
-                    fp16=True,
+                    fp16=self.use_gpu,  # FP16 только для GPU
                     verbose=True,
                     word_timestamps=True
                 )
@@ -589,9 +604,12 @@ class WhisperApp:
             
             self.is_transcribing = False
             
-            gpu_info_after = self.get_gpu_info()
-            self.update_log_safe(f"\n✅ Транскрибация завершена за {processing_time:.1f} секунд!\n")
-            self.update_log_safe(f"💾 Память GPU после: {gpu_info_after['memory_allocated']:.2f} GB\n")
+            if self.use_gpu:
+                gpu_info_after = self.get_gpu_info()
+                self.update_log_safe(f"\n✅ Транскрибация завершена за {processing_time:.1f} секунд!\n")
+                self.update_log_safe(f"💾 Память {device_info['name']} после: {gpu_info_after['memory_allocated']:.2f} GB\n")
+            else:
+                self.update_log_safe(f"\n✅ Транскрибация завершена за {processing_time:.1f} секунд!\n")
             self.update_log_safe(f"📝 Обработано символов: {len(result['text'])}\n")
             if processing_time > 0:
                 self.update_log_safe(f"🚀 Скорость: {len(result['text'])/processing_time:.0f} символов/сек\n")
@@ -599,7 +617,8 @@ class WhisperApp:
             
             self.display_result(result)
             
-            torch.cuda.empty_cache()
+            if self.use_gpu:
+                torch.cuda.empty_cache()
             
         except Exception as e:
             self.is_transcribing = False
@@ -607,7 +626,8 @@ class WhisperApp:
             self.update_log_safe(error_msg)
             
             try:
-                torch.cuda.empty_cache()
+                if self.use_gpu:
+                    torch.cuda.empty_cache()
             except:
                 pass
                 
@@ -615,7 +635,7 @@ class WhisperApp:
         
         finally:
             self.root.after(0, lambda: self.transcribe_btn.configure(
-                state="normal", text="🚀 Начать транскрибацию (GPU)", text_color="white"))
+                state="normal", text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", text_color="white"))
 
     def save_result(self):
         text = self.output.get("0.0", "end").strip()
