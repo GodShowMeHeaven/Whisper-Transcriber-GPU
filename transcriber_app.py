@@ -5,55 +5,22 @@ import whisper
 import threading
 import os
 import sys
-from io import StringIO
-import contextlib
-import torch
-import time
-import logging
-import warnings
 import re
 import textwrap
 import urllib.request
+import logging
+import warnings
+import torch
+import time
+from io import StringIO
+import contextlib
 
 # Настройка логирования
 logging.basicConfig(
     filename='transcription.log',
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
-
-# Проверка окружения при запуске
-def check_environment():
-    """Проверка окружения при запуске"""
-    print(f"Python version: {sys.version}")
-    print(f"Frozen: {getattr(sys, 'frozen', False)}")
-    if getattr(sys, 'frozen', False):
-        print(f"Executable: {sys.executable}")
-        print(f"Executable dir: {os.path.dirname(sys.executable)}")
-        try:
-            print(f"MEIPASS: {sys._MEIPASS}")
-        except AttributeError:
-            print("MEIPASS not available")
-    
-    # Проверка доступности основных модулей
-    try:
-        import torch
-        print(f"Torch version: {torch.__version__}")
-        print(f"CUDA available: {torch.cuda.is_available()}")
-    except ImportError as e:
-        print(f"Torch import error: {e}")
-    
-    try:
-        import whisper
-        print(f"Whisper imported successfully")
-    except ImportError as e:
-        print(f"Whisper import error: {e}")
-    
-    try:
-        import customtkinter
-        print(f"CustomTkinter imported successfully")
-    except ImportError as e:
-        print(f"CustomTkinter import error: {e}")
 
 class WhisperLogHandler(logging.Handler):
     """Кастомный обработчик логов для Whisper"""
@@ -81,15 +48,10 @@ class WhisperApp:
             ffmpeg_dir = os.path.join(application_path, "bin")
             ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
             
-            logging.debug(f"Application path: {application_path}")
-            logging.debug(f"FFmpeg directory: {ffmpeg_dir}")
-            logging.debug(f"FFmpeg path: {ffmpeg_path}")
-            
             if os.path.exists(ffmpeg_path):
                 current_path = os.environ.get("PATH", "")
                 if ffmpeg_dir not in current_path:
                     os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
-                logging.debug(f"Added FFmpeg to PATH: {ffmpeg_dir}")
                 return True
             else:
                 try:
@@ -101,7 +63,6 @@ class WhisperApp:
                         current_path = os.environ.get("PATH", "")
                         if ffmpeg_dir_alt not in current_path:
                             os.environ["PATH"] = ffmpeg_dir_alt + os.pathsep + current_path
-                        logging.debug(f"Added FFmpeg to PATH (MEIPASS): {ffmpeg_dir_alt}")
                         return True
                 except AttributeError:
                     pass
@@ -116,7 +77,6 @@ class WhisperApp:
                 current_path = os.environ.get("PATH", "")
                 if bin_dir not in current_path:
                     os.environ["PATH"] = bin_dir + os.pathsep + current_path
-                logging.debug(f"Added local FFmpeg to PATH: {bin_dir}")
             return True
 
     def __init__(self, root):
@@ -144,14 +104,12 @@ class WhisperApp:
 
         if not self.setup_ffmpeg_path():
             error_msg = "Критическая ошибка: FFmpeg не найден!"
-            logging.error(error_msg)
             self.update_log_safe(f"❌ {error_msg}\n")
             messagebox.showerror("Критическая ошибка", 
                                f"{error_msg}\n\nПриложение может работать некорректно.")
 
         self.create_widgets()
         self.root.after(100, self.load_model)
-        # Настройка закрытия окна
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def suppress_warnings(self):
@@ -169,7 +127,6 @@ class WhisperApp:
             return True
         except Exception as e:
             logging.error(f"GPU проверка не прошла: {e}")
-            print(f"DEBUG: GPU check failed: {e}")
             return False
 
     def get_gpu_info(self):
@@ -189,9 +146,9 @@ class WhisperApp:
 
     def setup_whisper_logging(self):
         self.whisper_log_handler = WhisperLogHandler(self.update_log_safe)
-        self.whisper_log_handler.setLevel(logging.DEBUG)
+        self.whisper_log_handler.setLevel(logging.ERROR)
         whisper_logger = logging.getLogger('whisper')
-        whisper_logger.setLevel(logging.DEBUG)
+        whisper_logger.setLevel(logging.ERROR)
         whisper_logger.addHandler(self.whisper_log_handler)
 
     def cleanup_whisper_logging(self):
@@ -387,9 +344,9 @@ class WhisperApp:
                                      font=ctk.CTkFont("Arial", 14), width=200)
         select_button.pack(pady=5)
 
-        self.transcribe_btn = ctk.CTkButton(control_frame, text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", 
+        self.transcribe_btn = ctk.CTkButton(control_frame, text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})",
                                            command=self.start_transcription,
-                                           font=ctk.CTkFont("Arial", 14, "bold"), width=250, 
+                                           font=ctk.CTkFont("Arial", 14, "bold"), width=250,
                                            fg_color="#4CAF50", text_color_disabled="#000000")
         self.transcribe_btn.pack(pady=5)
 
@@ -483,62 +440,39 @@ class WhisperApp:
         self.last_result = None
 
     def load_model(self):
-        threading.Thread(target=self._load_model_thread, daemon=True).start()
+        model_name = self.selected_model.get()
+        threading.Thread(target=lambda: self._load_model_thread(model_name), daemon=True).start()
     
-    def _load_model_thread(self):
+    def _load_model_thread(self, model_name):
         try:
             device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
-            def update_log_safe_from_thread(text):
-                self.root.after(0, lambda: self.update_log_safe(text))
-
-            update_log_safe_from_thread("=== 🚀 ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ ===\n")
-            update_log_safe_from_thread(f"Устройство: {device_info['name']}\n")
-            if self.use_gpu:
-                update_log_safe_from_thread(f"Доступно GPU: {device_info['device_count']}\n")
-                update_log_safe_from_thread(f"Общая память: {device_info['memory_total']:.2f} GB\n")
-                update_log_safe_from_thread(f"Память выделена: {device_info['memory_allocated']:.2f} GB\n")
-                update_log_safe_from_thread(f"Память зарезервирована: {device_info['memory_reserved']:.2f} GB\n")
-            update_log_safe_from_thread("=" * 50 + "\n\n")
-            
-            update_log_safe_from_thread(f"🔄 Загружаю модель Whisper {self.selected_model.get()} на {device_info['name']}...\n")
-            
             device = "cuda:0" if self.use_gpu else "cpu"
             self.setup_whisper_logging()
             
             cache_dir = os.path.expanduser("~/.cache/whisper")
             if not os.path.exists(cache_dir):
                 os.makedirs(cache_dir)
-                update_log_safe_from_thread(f"📂 Создаю кэш моделей в: {cache_dir}\n")
+                self.update_log_safe(f"📂 Создаю кэш моделей в: {cache_dir}\n")
             os.environ["WHISPER_CACHE_DIR"] = cache_dir
-            update_log_safe_from_thread(f"📂 Кэш моделей установлен в: {cache_dir}\n")
+            self.update_log_safe(f"📂 Кэш моделей установлен в: {cache_dir}\n")
             
             try:
                 urllib.request.urlopen('https://huggingface.co', timeout=5)
-                has_internet = True
             except:
-                has_internet = False
-            
-            if not has_internet:
                 raise Exception("Интернет-соединение отсутствует. Подключитесь к интернету для загрузки модели.")
             
             with self.capture_whisper_output():
-                self.model = whisper.load_model(self.selected_model.get(), device=device)
+                self.model = whisper.load_model(model_name, device=device)
             
             if hasattr(self.model, 'device'):
                 actual_device = str(self.model.device)
-                update_log_safe_from_thread(f"✅ Модель загружена на устройство: {actual_device}\n")
-                
                 if self.use_gpu and "cuda" not in actual_device.lower():
                     raise Exception(f"Модель загрузилась на {actual_device}, а не на GPU!")
                 elif not self.use_gpu and "cpu" not in actual_device.lower():
                     raise Exception(f"Модель загрузилась на {actual_device}, а не на CPU!")
             
-            if self.use_gpu:
-                gpu_info_after = self.get_gpu_info()
-                update_log_safe_from_thread(f"💾 Память GPU после загрузки: {gpu_info_after['memory_allocated']:.2f} GB\n")
-            
-            update_log_safe_from_thread(f"\n🚀 Модель {self.selected_model.get()} успешно загружена на {device_info['name']}!\n")
-            update_log_safe_from_thread("📋 Готов к транскрибации!\n\n")
+            self.update_log_safe(f"\n🚀 Модель {model_name} успешно загружена на {device_info['name']}!\n")
+            self.update_log_safe("📋 Готов к транскрибации!\n\n")
             
             self.root.after(0, lambda: self.transcribe_btn.configure(
                 text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", state="normal"))
@@ -546,31 +480,32 @@ class WhisperApp:
         except Exception as e:
             error_msg = f"❌ КРИТИЧЕСКАЯ ОШИБКА при загрузке модели: {e}\n\n"
             logging.error(error_msg)
-            update_log_safe_from_thread(error_msg)
-            
-            update_log_safe_from_thread("🔧 Возможные причины:\n")
+            self.update_log_safe(error_msg)
+            self.update_log_safe("🔧 Возможные причины:\n")
             if not self.use_gpu:
-                update_log_safe_from_thread("1. CPU доступен, но модель не загружается\n")
+                self.update_log_safe("1. CPU доступен, но модель не загружается\n")
             else:
-                update_log_safe_from_thread("1. Не установлен PyTorch с CUDA поддержкой\n")
-                update_log_safe_from_thread("2. Устаревшие драйверы NVIDIA\n")
-                update_log_safe_from_thread("3. Недостаточно памяти GPU\n")
-            update_log_safe_from_thread("4. Отсутствует интернет-соединение для загрузки модели\n\n")
-            update_log_safe_from_thread("💡 Для установки PyTorch с CUDA (если требуется GPU):\n")
-            update_log_safe_from_thread("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118\n")
-            update_log_safe_from_thread("💡 Для ручной загрузки модели: скачайте с https://huggingface.co/whisper и поместите в C:\\Users\\<Имя пользователя>\\.cache\\whisper.\n")
+                self.update_log_safe("1. Не установлен PyTorch с CUDA поддержкой\n")
+                self.update_log_safe("2. Устаревшие драйверы NVIDIA\n")
+                self.update_log_safe("3. Недостаточно памяти GPU\n")
+            self.update_log_safe("4. Отсутствует интернет-соединение для загрузки модели\n\n")
+            self.update_log_safe("💡 Для установки PyTorch с CUDA (если требуется GPU):\n")
+            self.update_log_safe("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118\n")
+            self.update_log_safe("💡 Для ручной загрузки модели: скачайте с https://huggingface.co/whisper и поместите в C:\\Users\\<Имя пользователя>\\.cache\\whisper.\n")
             
             self.root.after(0, lambda: messagebox.showerror("Критическая ошибка", 
-                            f"Не удалось загрузить модель:\n{e}\n\n"
-                            "Проверьте интернет-соединение или установите модель вручную в C:\\Users\\<Имя пользователя>\\.cache\\whisper."))
+                                  f"Не удалось загрузить модель:\n{e}\n\n"
+                                  "Проверьте интернет-соединение или установите модель вручную в C:\\Users\\<Имя пользователя>\\.cache\\whisper."))
 
     def apply_selected_model(self):
-        if self.model and self.model.name == self.selected_model.get():
-            messagebox.showinfo("Информация", f"Модель {self.selected_model.get()} уже загружена!")
-            return
+        if self.model:
+            messagebox.showinfo("Информация", f"Перезагружаю модель {self.selected_model.get()}...")
+        else:
+            messagebox.showinfo("Информация", f"Загружаю модель {self.selected_model.get()}...")
         
         self.transcribe_btn.configure(state="disabled", text="Загрузка модели...", text_color="#000000")
-        threading.Thread(target=self._load_model_thread, daemon=True).start()
+        model_name = self.selected_model.get()
+        threading.Thread(target=lambda: self._load_model_thread(model_name), daemon=True).start()
 
     def select_file(self):
         filetypes = [
@@ -680,47 +615,28 @@ class WhisperApp:
         self.root.after(0, update_final_result)
 
     def transcribe_audio(self):
-        logging.debug("=== Starting transcribe_audio ===")
-        print("=== DEBUG: Starting transcribe_audio ===")
         try:
             device_info = self.get_gpu_info() if self.use_gpu else {"name": "CPU"}
             file_ext = os.path.splitext(self.filename)[1].lower()
             file_type = "видео" if file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.3gp'] else "аудио"
-            
-            logging.debug(f"Device info: {device_info}")
-            logging.debug(f"File extension: {file_ext}, Type: {file_type}")
-            logging.debug(f"Filename: {self.filename}")
-            print(f"DEBUG: Device info: {device_info}")
-            print(f"DEBUG: File extension: {file_ext}, Type: {file_type}")
-            print(f"DEBUG: Filename: {self.filename}")
             
             self.update_log_safe(f"🎬 Начинаю обработку {file_type} файла на {device_info['name']}...\n")
             self.update_log_safe(f"📁 Файл: {os.path.basename(self.filename)}\n")
             if self.use_gpu:
                 self.update_log_safe(f"🚀 GPU: {device_info['name']}\n")
                 self.update_log_safe(f"💾 Память до обработки: {device_info['memory_allocated']:.2f} GB\n")
-                logging.debug(f"GPU memory before: {device_info['memory_allocated']:.2f} GB")
-                print(f"DEBUG: GPU memory before: {device_info['memory_allocated']:.2f} GB")
             self.update_log_safe("=" * 50 + "\n")
             
             if self.use_gpu:
                 torch.cuda.empty_cache()
-                logging.debug("GPU cache cleared")
-                print("DEBUG: GPU cache cleared")
             
             start_time = time.time()
-            logging.debug(f"Transcription start time: {start_time}")
-            print(f"DEBUG: Transcription start time: {start_time}")
             
             self.is_transcribing = True
             self.update_log_safe(f"Начинаю обработку на {device_info['name']} с моделью {self.selected_model.get()}...\n")
-            logging.debug(f"Starting transcription with model: {self.selected_model.get()}")
-            print(f"DEBUG: Starting transcription with model: {self.selected_model.get()}")
             
             exe_dir = os.path.dirname(sys.executable)
-            ffmpeg_path = os.path.join(exe_dir, "_internal", "bin", "ffmpeg.exe")
-            logging.debug(f"Using ffmpeg path: {ffmpeg_path}, exists: {os.path.exists(ffmpeg_path)}")
-            print(f"DEBUG: Using ffmpeg path: {ffmpeg_path}, exists: {os.path.exists(ffmpeg_path)}")
+            ffmpeg_path = os.path.join(exe_dir, "bin", "ffmpeg.exe")
             if not os.path.exists(ffmpeg_path):
                 raise Exception(f"ffmpeg.exe not found at {ffmpeg_path}")
             
@@ -733,69 +649,44 @@ class WhisperApp:
                     verbose=True,
                     word_timestamps=True
                 )
-                logging.debug("Transcription completed in whisper context")
-                print("DEBUG: Transcription completed in whisper context")
             
             processing_time = time.time() - start_time
             self._last_processing_time = processing_time
             self.last_result = result
-            logging.debug(f"Processing time: {processing_time:.1f} seconds")
-            print(f"DEBUG: Processing time: {processing_time:.1f} seconds")
             
             self.is_transcribing = False
-            logging.debug("Transcription flag set to False")
-            print("DEBUG: Transcription flag set to False")
             
             if self.use_gpu:
                 gpu_info_after = self.get_gpu_info()
                 self.update_log_safe(f"\n✅ Транскрибация завершена за {processing_time:.1f} секунд!\n")
                 self.update_log_safe(f"💾 Память {device_info['name']} после: {gpu_info_after['memory_allocated']:.2f} GB\n")
-                logging.debug(f"GPU memory after: {gpu_info_after['memory_allocated']:.2f} GB")
-                print(f"DEBUG: GPU memory after: {gpu_info_after['memory_allocated']:.2f} GB")
             else:
                 self.update_log_safe(f"\n✅ Транскрибация завершена за {processing_time:.1f} секунд!\n")
             
             self.update_log_safe(f"📝 Обработано символов: {len(result['text'])}\n")
-            logging.debug(f"Characters processed: {len(result['text'])}")
-            print(f"DEBUG: Characters processed: {len(result['text'])}")
             if processing_time > 0:
                 self.update_log_safe(f"🚀 Скорость: {len(result['text'])/processing_time:.0f} символов/сек\n")
-                logging.debug(f"Speed: {len(result['text'])/processing_time:.0f} chars/sec")
-                print(f"DEBUG: Speed: {len(result['text'])/processing_time:.0f} chars/sec")
             self.update_log_safe("=" * 60 + "\n")
             
             self.display_result(result)
-            logging.debug("Result displayed")
-            print("DEBUG: Result displayed")
             
             if self.use_gpu:
                 torch.cuda.empty_cache()
-                logging.debug("GPU cache cleared after transcription")
-                print("DEBUG: GPU cache cleared after transcription")
             
         except Exception as e:
             self.is_transcribing = False
             error_msg = f"❌ Ошибка при транскрибации: {e}\n"
             logging.error(error_msg)
-            print(f"DEBUG: Transcription error: {e}")
             self.update_log_safe(error_msg)
             
-            try:
-                if self.use_gpu:
-                    torch.cuda.empty_cache()
-                    logging.debug("GPU cache cleared on error")
-                    print("DEBUG: GPU cache cleared on error")
-            except Exception as e_cache:
-                logging.error(f"Failed to clear GPU cache: {e_cache}")
-                print(f"DEBUG: Failed to clear GPU cache: {e_cache}")
+            if self.use_gpu:
+                torch.cuda.empty_cache()
                     
             self.root.after(0, lambda: messagebox.showerror("Ошибка транскрибации", str(e)))
         
         finally:
             self.root.after(0, lambda: self.transcribe_btn.configure(
                 state="normal", text=f"🚀 Начать транскрибацию ({'GPU' if self.use_gpu else 'CPU'})", text_color="white"))
-            logging.debug("Button state restored")
-            print("DEBUG: Button state restored")
 
     def save_result(self):
         text = self.output.get("0.0", "end").strip()
@@ -830,15 +721,13 @@ class WhisperApp:
 
     def on_closing(self):
         """Очистка при закрытии окна"""
-        self.root.after_cancel_all()  # Отменяет все запланированные вызовы after
         self.cleanup_whisper_logging()
         if self.use_gpu:
             torch.cuda.empty_cache()
+        self.root.quit()
         self.root.destroy()
 
 def main():
-    check_environment()
-    
     warnings.filterwarnings("ignore", category=FutureWarning)
     warnings.filterwarnings("ignore", category=UserWarning)
     
